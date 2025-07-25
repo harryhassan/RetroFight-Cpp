@@ -43,7 +43,7 @@ A 2D retro-style arcade fighting game built using **C++** and **SFML**. Designed
 
 1. Clone the repository:
    ```bash
-   git clone https://github.com/yourusername/RetroRumble-Cpp.git
+   git clone https://github.com/hassanharry/RetroRumble-Cpp.git
 Set up SFML:
 
 Link the necessary SFML static libraries (graphics, window, system)
